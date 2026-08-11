@@ -1,0 +1,59 @@
+# docker-compose.yml
+#
+# This file starts everything InsightOS needs with one command:
+#     docker compose up -d
+#
+# It starts three things:
+#   1. postgres  - the structured database (sales, tickets, decisions...)
+#   2. qdrant    - the vector database (for semantic search)
+#   3. backend   - our FastAPI app, agents, and API endpoints
+#
+# (The frontend gets added here once it's built, in the next step.)
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: insightos-postgres
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: insightos
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  qdrant:
+    image: qdrant/qdrant:latest
+    container_name: insightos-qdrant
+    restart: always
+    ports:
+      - "6333:6333"
+    volumes:
+      - qdrant_data:/qdrant/storage
+
+  backend:
+    build: ./backend
+    container_name: insightos-backend
+    restart: always
+    # env_file loads your secrets (like GROQ_API_KEY) from backend/.env
+    env_file:
+      - ./backend/.env
+    # These two values are OVERRIDDEN here on purpose. Inside Docker,
+    # containers can't reach each other using "localhost" - they have
+    # to use the other container's SERVICE NAME instead (postgres,
+    # qdrant). Your .env file still uses "localhost" for when you run
+    # the backend directly on your own machine without Docker.
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/insightos
+      QDRANT_HOST: qdrant
+    ports:
+      - "8000:8000"
+    depends_on:
+      - postgres
+      - qdrant
+
+volumes:
+  postgres_data:
+  qdrant_data:

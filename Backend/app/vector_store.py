@@ -1,0 +1,176 @@
+"""
+vector_store.py
+----------------
+Wraps Qdrant so the rest of the app never talks to Qdrant directly --
+it just calls simple functions like `search()` and `add_texts()`.
+
+Two jobs happen here:
+  1. Turn text into vectors (embedding), using Sentence Transformers.
+  2. Store/search those vectors in Qdrant.
+ 
+WHAT GETS STORED HERE (from multiple sources, all in one collection):
+  - Uploaded PDF/document chunks   (source_type="document")
+  - Support tickets                (source_type="ticket")
+  - Reviews                        (source_type="review")
+  - Deployment log descriptions    (source_type="deployment")
+
+Storing all of these together (instead of separate collections) lets the
+Knowledge Agent run ONE semantic search and get back a mix of whatever's
+most relevant -- a ticket, a review, AND a deployment note -- which is
+exactly the cross-source evidence gathering the Decision Agent needs.
+"""
+
+from qdrant_client import QdrantClient
+from qdrant_client.models import (
+    Distance,
+    VectorParams,
+    PointStruct,
+    Filter,
+    FieldCondition,
+    MatchValue,
+)
+from sentence_transformers import SentenceTransformer
+
+from app.config import get_settings
+
+settings = get_settings()
+
+_embedding_model: SentenceTransformer | None = None
+_qdrant_client: QdrantClient | None = None
+
+VECTOR_SIZE = 384
+
+
+def get_embedding_model() -> SentenceTransformer:
+    global _embedding_model
+    if _embedding_model is None:
+        _embedding_model = SentenceTransformer(settings.EMBEDDING_MODEL)
+    return _embedding_model
+
+
+def get_qdrant_client() -> QdrantClient:
+    global _qdrant_client
+    if _qdrant_client is None:
+        _qdrant_client = QdrantClient(host=settings.QDRANT_HOST, port=settings.QDRANT_PORT)
+    return _qdrant_client
+
+
+def init_collection():
+    """
+    Creates the Qdrant collection if it doesn't already exist.
+    Safe to call every time the app starts -- it checks first.
+    """
+    client = get_qdrant_client()
+    existing = [c.name for c in client.get_collections().collections]
+
+    if settings.QDRANT_COLLECTION not in existing:
+        client.create_collection(
+            collection_name=settings.QDRANT_COLLECTION,
+            vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
+        )
+
+
+def embed(texts: list[str]) -> list[list[float]]:
+    """Converts a list of text strings into a list of embedding vectors."""
+    model = get_embedding_model()
+    vectors = model.encode(texts, convert_to_numpy=True)
+    return vectors.tolist() ##converts the NumPy arrays into normal Python lists.
+
+
+def add_texts(
+    texts: list[str],
+    source_type: str,          # "document" | "ticket" | "review" | "deployment"
+    company_id: int = 1,
+    extra_payload: list[dict] | None = None,
+) -> list[str]:
+    """
+    Embeds and stores a batch of texts in Qdrant.
+
+    `extra_payload` (optional) lets the caller attach per-text metadata,
+    e.g. [{"filename": "refund_policy.pdf", "chunk_index": 0}, ...]
+    Must be same length as `texts` if provided.
+
+    Returns the list of Qdrant point IDs that were created -- callers
+    (like the upload route) save these IDs in Postgres so they can
+    delete/update this data later if needed.
+    """
+    import uuid
+
+    if not texts:
+        return []
+
+    vectors = embed(texts)
+    point_ids = [str(uuid.uuid4()) for _ in texts]
+
+    points = []
+    for i, (text, vector, point_id) in enumerate(zip(texts, vectors, point_ids)):
+        payload = {
+            "text": text,
+            "source_type": source_type,
+            "company_id": company_id,
+        }
+        if extra_payload:
+            payload.update(extra_payload[i])
+
+        points.append(PointStruct(id=point_id, vector=vector, payload=payload))
+
+    client = get_qdrant_client()
+    client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points) ##Add these points, or update them if those IDs already exist.
+
+    return point_ids
+
+
+def search(
+    query: str,
+    top_k: int = 5,
+    company_id: int = 1,
+    source_types: list[str] | None = None,
+) -> list[dict]:
+    """
+    Semantic search: finds the `top_k` stored texts most similar in
+    MEANING to `query` (not exact keyword match).
+
+    `source_types` optionally restricts results to certain kinds of
+    evidence, e.g. search(..., source_types=["ticket", "review"])
+    to skip documents/deployments for a particular question.
+
+    Returns a list of dicts: [{"text": ..., "source_type": ..., "score": ..., ...}]
+    `score` is a similarity score between 0 and 1 (higher = more relevant).
+    """
+    query_vector = embed([query])[0]
+
+    must_conditions = [
+        FieldCondition(key="company_id", match=MatchValue(value=company_id))
+    ]
+    if source_types:
+        # Qdrant needs an OR across allowed source_types; simplest way
+        # for a small fixed list is to run one filtered search per type
+        # and merge -- but for V1 simplicity we filter client-side instead
+        # if more than one type is requested.
+        pass
+
+    query_filter = Filter(must=must_conditions)
+
+    client = get_qdrant_client()
+    results = client.query_points(
+        collection_name=settings.QDRANT_COLLECTION,
+        query=query_vector,
+        query_filter=query_filter,
+        limit=top_k * 3 if source_types else top_k,  # over-fetch if we'll filter client-side
+    ).points
+
+    output = []
+    for r in results:
+        payload = r.payload or {}
+        if source_types and payload.get("source_type") not in source_types:
+            continue
+        output.append({
+            "text": payload.get("text"),
+            "source_type": payload.get("source_type"),
+            "score": round(r.score, 4),
+            **{k: v for k, v in payload.items() if k not in ("text", "source_type", "company_id")},
+        })
+        if len(output) >= top_k:
+            break
+
+    return output

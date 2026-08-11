@@ -1,0 +1,65 @@
+# --- Web framework ---
+
+fastapi
+uvicorn[standard]
+
+# --- Database ---
+
+sqlalchemy
+psycopg2-binary
+alembic
+
+# --- Data / ML ---
+
+pandas
+numpy
+scikit-learn
+
+# --- Vector store / embeddings ---
+
+qdrant-client
+sentence-transformers
+
+# --- LangGraph (agent orchestration) ---
+
+# Note: LangGraph reached a stable 1.x API. We build against 1.x, not the
+
+# older pre-1.0 line, since the graph-building API changed between them.
+
+langgraph
+langchain-core
+
+# --- LLM Gateway (lets us swap Groq / GPT / Gemini without changing code) ---
+
+litellm
+
+# --- PDF reading (for Knowledge Agent documents) ---
+
+pypdf
+
+# --- Config / validation ---
+
+pydantic
+pydantic-settings
+python-dotenv
+
+# --- Evaluation Engine (RAGAS - real faithfulness/relevancy scoring) ---
+
+ragas
+groq
+datasets
+
+# --- Guardrails (NVIDIA NeMo Guardrails - policy-level input/output checks) ---
+
+nemoguardrails
+langchain-groq
+
+# --- Scheduling (hourly autonomous pipeline runs, no Celery needed for V1) ---
+
+apscheduler
+
+# --- Utilities ---
+
+python-multipart
+
+openai

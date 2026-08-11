@@ -1,0 +1,93 @@
+# =========================
+# Python
+# =========================
+
+__pycache__/
+*.py[cod]
+*$py.class
+
+# =========================
+# Virtual Environment
+# =========================
+
+.venv/
+venv/
+env/
+ENV/
+
+# =========================
+# Environment / Secrets
+# =========================
+
+.env
+.env.*
+!.env.example
+
+# =========================
+# IDE / Editor
+# =========================
+
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# =========================
+# OS
+# =========================
+
+.DS_Store
+Thumbs.db
+
+# =========================
+# Python Tools
+# =========================
+
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# =========================
+# Local Database / Data
+# =========================
+
+*.db
+*.sqlite
+*.sqlite3
+
+# =========================
+# Logs
+# =========================
+
+*.log
+logs/
+
+# =========================
+# ML / Model Cache
+# =========================
+
+.cache/
+huggingface_cache/
+sentence_transformers/
+
+# =========================
+# Local uploaded files
+# =========================
+
+uploads/
+data/uploads/
+
+# =========================
+# Qdrant local storage
+# =========================
+
+qdrant_storage/
+
+# =========================
+# Temporary files
+# =========================
+
+*.tmp
+*.temp
