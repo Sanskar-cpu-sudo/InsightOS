@@ -7,7 +7,7 @@ it just calls simple functions like `search()` and `add_texts()`.
 Two jobs happen here:
   1. Turn text into vectors (embedding), using Sentence Transformers.
   2. Store/search those vectors in Qdrant.
- 
+
 WHAT GETS STORED HERE (from multiple sources, all in one collection):
   - Uploaded PDF/document chunks   (source_type="document")
   - Support tickets                (source_type="ticket")
@@ -35,9 +35,16 @@ from app.config import get_settings
 
 settings = get_settings()
 
+# --- Singletons -------------------------------------------------------
+# We only want ONE embedding model loaded in memory (it's ~80MB+ and slow
+# to load) and ONE Qdrant client connection, reused everywhere.
+
 _embedding_model: SentenceTransformer | None = None
 _qdrant_client: QdrantClient | None = None
 
+# all-MiniLM-L6-v2 produces 384-dimensional vectors. If you ever change
+# EMBEDDING_MODEL in config.py to a different model, this number must
+# match that model's output size, or Qdrant will reject inserts.
 VECTOR_SIZE = 384
 
 
@@ -74,21 +81,33 @@ def embed(texts: list[str]) -> list[list[float]]:
     """Converts a list of text strings into a list of embedding vectors."""
     model = get_embedding_model()
     vectors = model.encode(texts, convert_to_numpy=True)
-    return vectors.tolist() ##converts the NumPy arrays into normal Python lists.
+    return vectors.tolist()
 
 
 def add_texts(
     texts: list[str],
     source_type: str,          # "document" | "ticket" | "review" | "deployment"
     company_id: int = 1,
+    created_at: list[str] | None = None,   # ISO format timestamps, one per text
+    source_id: list[int] | None = None,    # the Postgres row id each text came from
+    category: list[str] | None = None,     # e.g. "performance", "billing" (optional)
     extra_payload: list[dict] | None = None,
 ) -> list[str]:
     """
     Embeds and stores a batch of texts in Qdrant.
 
-    `extra_payload` (optional) lets the caller attach per-text metadata,
-    e.g. [{"filename": "refund_policy.pdf", "chunk_index": 0}, ...]
-    Must be same length as `texts` if provided.
+    V2 CHANGE: we now explicitly store created_at, source_id, and
+    category as their own fields (not just buried in extra_payload).
+    This is needed for Phase 1's re-ranker, which has to know HOW OLD
+    each piece of evidence is (created_at) and needs a way to trace
+    evidence back to its original Postgres row (source_id).
+
+    created_at / source_id / category are all OPTIONAL lists - if you
+    don't have this info for a particular call, just leave them out
+    and those fields simply won't be set on those points.
+
+    `extra_payload` still works too, for anything else you want to
+    attach that doesn't have its own dedicated field.
 
     Returns the list of Qdrant point IDs that were created -- callers
     (like the upload route) save these IDs in Postgres so they can
@@ -109,13 +128,21 @@ def add_texts(
             "source_type": source_type,
             "company_id": company_id,
         }
+
+        if created_at:
+            payload["created_at"] = created_at[i]
+        if source_id:
+            payload["source_id"] = source_id[i]
+        if category:
+            payload["category"] = category[i]
+
         if extra_payload:
             payload.update(extra_payload[i])
 
         points.append(PointStruct(id=point_id, vector=vector, payload=payload))
 
     client = get_qdrant_client()
-    client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points) ##Add these points, or update them if those IDs already exist.
+    client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points)
 
     return point_ids
 

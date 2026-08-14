@@ -40,7 +40,16 @@ def sync_tickets(db):
         return 0
 
     texts = [t.content for t in tickets]
-    add_texts(texts, source_type="ticket", company_id=DEFAULT_COMPANY_ID)
+    # V2: pass created_at (needed for recency scoring), source_id (so we
+    # can trace evidence back to its Postgres row), and category
+    add_texts(
+        texts,
+        source_type="ticket",
+        company_id=DEFAULT_COMPANY_ID,
+        created_at=[t.created_at.isoformat() for t in tickets],
+        source_id=[t.id for t in tickets],
+        category=[t.category or "general" for t in tickets],
+    )
     return len(texts)
 
 
@@ -50,7 +59,14 @@ def sync_reviews(db):
         return 0
 
     texts = [r.content for r in reviews]
-    add_texts(texts, source_type="review", company_id=DEFAULT_COMPANY_ID)
+    add_texts(
+        texts,
+        source_type="review",
+        company_id=DEFAULT_COMPANY_ID,
+        created_at=[r.created_at.isoformat() for r in reviews],
+        source_id=[r.id for r in reviews],
+        category=[f"{r.rating}_star" for r in reviews],
+    )
     return len(texts)
 
 
@@ -60,7 +76,14 @@ def sync_deployments(db):
         return 0
 
     texts = [d.description for d in deployments]
-    add_texts(texts, source_type="deployment", company_id=DEFAULT_COMPANY_ID)
+    add_texts(
+        texts,
+        source_type="deployment",
+        company_id=DEFAULT_COMPANY_ID,
+        created_at=[d.deployed_at.isoformat() for d in deployments],
+        source_id=[d.id for d in deployments],
+        category=[d.version for d in deployments],
+    )
     return len(texts)
 
 

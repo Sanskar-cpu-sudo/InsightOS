@@ -48,6 +48,8 @@ def split_into_chunks(text: str, chunk_size: int = CHUNK_SIZE) -> list:
 
 @router.post("")
 def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    from datetime import datetime, UTC
+
     file_bytes = file.file.read()
 
     text = extract_text_from_pdf(file_bytes)
@@ -56,24 +58,35 @@ def upload_document(file: UploadFile = File(...), db: Session = Depends(get_db))
     if not chunks:
         return {"success": False, "reason": "no_text_found_in_pdf"}
 
-    # store each chunk in Qdrant, tagged as a "document"
-    extra_payload = [{"filename": file.filename, "chunk_index": i} for i in range(len(chunks))]
-    point_ids = add_texts(
-        texts=chunks,
-        source_type="document",
-        company_id=DEFAULT_COMPANY_ID,
-        extra_payload=extra_payload,
-    )
-
-    # save a record in Postgres too, so we know what was uploaded
+    # V2: create the Document row FIRST (before adding to Qdrant) so we
+    # have a real id to use as source_id - this lets us trace any piece
+    # of retrieved evidence back to exactly which uploaded file it came
+    # from, and when it was uploaded (for recency scoring later).
     new_document = Document(
         company_id=DEFAULT_COMPANY_ID,
         filename=file.filename,
-        qdrant_point_ids=point_ids,
+        qdrant_point_ids=[],  # filled in below, after we have point_ids
     )
     db.add(new_document)
     db.commit()
     db.refresh(new_document)
+
+    upload_time = datetime.now(UTC).isoformat()
+    extra_payload = [{"filename": file.filename, "chunk_index": i} for i in range(len(chunks))]
+
+    point_ids = add_texts(
+        texts=chunks,
+        source_type="document",
+        company_id=DEFAULT_COMPANY_ID,
+        created_at=[upload_time] * len(chunks),
+        source_id=[new_document.id] * len(chunks),
+        category=["policy_document"] * len(chunks),
+        extra_payload=extra_payload,
+    )
+
+    # now update the Document row with the actual Qdrant point ids
+    new_document.qdrant_point_ids = point_ids
+    db.commit()
 
     return {
         "success": True,
