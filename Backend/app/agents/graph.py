@@ -1,9 +1,17 @@
 from typing import TypedDict, Optional
+from datetime import date
+
 from langgraph.graph import StateGraph, START, END
 from sqlalchemy.orm import Session
 
 from app.agents.data_agent import run_data_agent
-from app.agents.knowledge_agent import run_knowledge_agent, run_knowledge_agent_from_anomaly
+from app.agents.knowledge_agent import (
+    run_knowledge_agent,
+    run_knowledge_agent_from_anomaly,
+    run_knowledge_agent_from_incident,
+    find_recent_deployment,
+    deployment_as_evidence,
+)
 from app.agents.decision_agent import run_decision_agent
 
 
@@ -15,6 +23,7 @@ class PipelineState(TypedDict):
 
     data_agent_result: Optional[dict]
     chosen_anomaly: Optional[dict]
+    chosen_incident: Optional[dict]  # V2, Step 3.4: set when correlated
     knowledge_agent_result: Optional[dict]
     decision_agent_result: Optional[dict]
 
@@ -33,6 +42,7 @@ def data_agent_node(state: PipelineState) -> PipelineState:
     anomalies = result["anomalies"]
     if not anomalies:
         state["chosen_anomaly"] = None
+        state["chosen_incident"] = None
         return state
 
     # if there is more than one anomaly, pick the highest severity one first
@@ -42,13 +52,40 @@ def data_agent_node(state: PipelineState) -> PipelineState:
     else:
         state["chosen_anomaly"] = anomalies[0]
 
+    # V2, Step 3.4: also carry through the incident, if data_agent found
+    # the anomalies to be correlated (Step 3.2's build_incident()).
+    # chosen_anomaly above is left completely unchanged either way, so
+    # any code still only reading chosen_anomaly behaves exactly as it
+    # did in V1 -- this is purely additive.
+    state["chosen_incident"] = result.get("incident")
+
     return state
+
+
+def _incident_anomaly_time(incident: dict):
+    """
+    V2, Step 3.4: incidents don't have one single "date" the way a
+    point_anomaly does -- they bundle several component anomalies
+    together (data_agent.py's build_incident()). Look for a component
+    with an exact date (a point_anomaly); fall back to today if the
+    incident is made entirely of trend_anomalies, which have no single
+    date of their own either.
+    """
+    for component in incident.get("anomalies", []):
+        if component.get("date"):
+            return component["date"]
+    return date.today()
 
 
 def knowledge_agent_node(state: PipelineState) -> PipelineState:
     """
-    In "auto" mode: builds a search query from the chosen anomaly.
-    In "ask" mode: searches directly using the user's question.
+    In "auto" mode: builds a search query from the chosen anomaly (or,
+    V2 Step 3.4, from the whole INCIDENT when one was found -- covering
+    every correlated metric's context instead of just one), AND (Step
+    2.3) always checks for a recent deployment alongside it.
+    In "ask" mode: searches directly using the user's question. There's
+    no anomaly and no anomaly time in this mode, so the deployment check
+    is skipped -- it has nothing to correlate against.
     """
     if state["mode"] == "auto":
         if state["chosen_anomaly"] is None:
@@ -56,10 +93,38 @@ def knowledge_agent_node(state: PipelineState) -> PipelineState:
             state["knowledge_agent_result"] = None
             return state
 
-        result = run_knowledge_agent_from_anomaly(
-            state["chosen_anomaly"],
-            company_id=state["company_id"],
-        )
+        incident = state.get("chosen_incident")
+
+        if incident is not None:
+            # V2, Step 3.4: several metrics moved together -- search
+            # using ALL of their context, not just the single anomaly
+            # that happened to be picked as "chosen_anomaly" above.
+            result = run_knowledge_agent_from_incident(
+                incident,
+                company_id=state["company_id"],
+            )
+            anomaly_time = _incident_anomaly_time(incident)
+        else:
+            # no correlation found -- exactly V1/Step-2.3 behavior
+            anomaly = state["chosen_anomaly"]
+            result = run_knowledge_agent_from_anomaly(
+                anomaly,
+                company_id=state["company_id"],
+            )
+            anomaly_time = anomaly.get("date", date.today())
+
+        # V2, Step 2.3: ALWAYS run the targeted deployment lookup
+        # alongside the semantic search, not just when the semantic
+        # search happens to surface a deployment note by wording match.
+        deployment = find_recent_deployment(state["db"], anomaly_time)
+
+        if deployment is not None:
+            # Put the deployment evidence FIRST -- it's a concrete,
+            # checkable fact ("evidence_role": "temporal_signal"), not
+            # just a similarity match, so it deserves to be the evidence
+            # the Decision Agent sees first, not buried in the list.
+            result["evidence"] = [deployment_as_evidence(deployment)] + result["evidence"]
+            result["evidence_found"] = len(result["evidence"])
     else:
         result = run_knowledge_agent(
             state["user_question"],
@@ -82,7 +147,11 @@ def decision_agent_node(state: PipelineState) -> PipelineState:
     evidence = state["knowledge_agent_result"]["evidence"]
 
     if state["mode"] == "auto":
-        anomaly = state["chosen_anomaly"]
+        # V2, Step 3.4: prefer the incident when one was found -- it's
+        # the fuller picture when several metrics moved together.
+        # Falls back to chosen_anomaly exactly like V1 did whenever
+        # there's no incident (the common, single-metric case).
+        anomaly = state.get("chosen_incident") or state["chosen_anomaly"]
     else:
         # in "ask" mode there is no anomaly from the Data Agent,
         # so we build a simple stand-in describing the user's question
@@ -132,6 +201,7 @@ def run_pipeline_auto(db: Session, company_id: int = 1) -> PipelineState:
         "user_question": None,
         "data_agent_result": None,
         "chosen_anomaly": None,
+        "chosen_incident": None,
         "knowledge_agent_result": None,
         "decision_agent_result": None,
     }
@@ -150,6 +220,7 @@ def run_pipeline_ask(db: Session, question: str, company_id: int = 1) -> Pipelin
         "user_question": question,
         "data_agent_result": None,
         "chosen_anomaly": None,
+        "chosen_incident": None,
         "knowledge_agent_result": None,
         "decision_agent_result": None,
     }

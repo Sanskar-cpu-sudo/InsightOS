@@ -91,6 +91,8 @@ def add_texts(
     created_at: list[str] | None = None,   # ISO format timestamps, one per text
     source_id: list[int] | None = None,    # the Postgres row id each text came from
     category: list[str] | None = None,     # e.g. "performance", "billing" (optional)
+    evidence_role: str = "semantic_match", # V2 Step 2.2: how the Decision Agent
+                                            # should weigh this evidence; see search()
     extra_payload: list[dict] | None = None,
 ) -> list[str]:
     """
@@ -105,6 +107,13 @@ def add_texts(
     created_at / source_id / category are all OPTIONAL lists - if you
     don't have this info for a particular call, just leave them out
     and those fields simply won't be set on those points.
+
+    evidence_role (V2, Step 2.2): tags how the Decision Agent should
+    weigh this evidence. Everything synced through here defaults to
+    "semantic_match" -- it was found by similarity search. The other
+    role, "temporal_signal", is only ever attached at query time (in
+    knowledge_agent.py's deployment_as_evidence()), not stored in
+    Qdrant, since it depends on which anomaly is being investigated.
 
     `extra_payload` still works too, for anything else you want to
     attach that doesn't have its own dedicated field.
@@ -127,6 +136,7 @@ def add_texts(
             "text": text,
             "source_type": source_type,
             "company_id": company_id,
+            "evidence_role": evidence_role,
         }
 
         if created_at:
@@ -195,7 +205,17 @@ def search(
             "text": payload.get("text"),
             "source_type": payload.get("source_type"),
             "score": round(r.score, 4),
-            **{k: v for k, v in payload.items() if k not in ("text", "source_type", "company_id")},
+            # V2 Step 2.2: everything found by THIS function (semantic
+            # search) is tagged "semantic_match". Deployment evidence
+            # found via the targeted find_recent_deployment() lookup in
+            # knowledge_agent.py is tagged "temporal_signal" instead --
+            # that distinction is what lets the Decision Agent treat a
+            # provable "a deploy happened N hours ago" fact differently
+            # from "this ticket's wording happens to be similar".
+            # Default here covers points synced before this field
+            # existed, so old data doesn't come back with a missing key.
+            "evidence_role": payload.get("evidence_role", "semantic_match"),
+            **{k: v for k, v in payload.items() if k not in ("text", "source_type", "company_id", "evidence_role")},
         })
         if len(output) >= top_k:
             break
