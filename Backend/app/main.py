@@ -12,13 +12,26 @@ To run this locally:
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+import logfire
 
 from app.database import init_db
 from app.vector_store import init_collection
+from app.scheduler import start_scheduler, stop_scheduler
+from app.monitoring import configure_monitoring
 
 from app.routers import dashboard, upload, recommendations, history
 
+# V2, Step 6.2: connect to Logfire (idempotent, see monitoring.py) --
+# database.py already calls this too, whichever module happens to
+# import first sets it up, the other just finds it already configured.
+configure_monitoring()
+
 app = FastAPI(title="InsightOS API")
+
+# V2, Step 6.2: every HTTP request now shows up in Logfire too (which
+# route, status code, how long it took), not just LLM calls and DB
+# queries. Purely observability -- doesn't change how any route behaves.
+logfire.instrument_fastapi(app)
 
 # Allows the React frontend (running on a different port) to call this API.
 app.add_middleware(
@@ -38,6 +51,23 @@ def on_startup():
     """
     init_db()
     init_collection()
+
+    # V2, Step 5.2: start the real scheduler so the automatic pipeline
+    # (Data Agent -> Knowledge Agent -> Decision Agent) now runs on its
+    # own, on a recurring interval (see scheduler.py), instead of only
+    # ever running when someone manually calls POST /recommendations/run-now.
+    start_scheduler()
+
+
+@app.on_event("shutdown")
+def on_shutdown():
+    """
+    Runs once when the server stops.
+    V2, Step 5.2: shuts the scheduler down cleanly, so no background
+    job is left half-running (or still holding a db session open)
+    after the app itself has already stopped.
+    """
+    stop_scheduler()
 
 
 @app.get("/")

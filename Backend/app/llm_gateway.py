@@ -1,10 +1,13 @@
 import time
 import json
 import litellm
+import logfire
 
 from app.config import get_settings
+from app.monitoring import configure_monitoring
 
 settings = get_settings()
+configure_monitoring()
 
 # LiteLLM expects the provider's API key as an environment variable
 # (or passed explicitly). We set it explicitly here based on whichever
@@ -106,29 +109,45 @@ def complete(
     attempts = []
 
     for model in _model_chain():
-        start = time.time()
-        try:
-            response = litellm.completion(
+        # V2, Step 6.1: one Logfire span per model attempt -- this is
+        # what lets us see, per call, which model actually answered,
+        # whether the primary model failed and we fell back, and how
+        # long/expensive each attempt was, all without changing any of
+        # the function's actual return behavior below.
+        with logfire.span("llm_completion", model=model) as span:
+            start = time.time()
+            try:
+                response = litellm.completion(
+                    model=model,
+                    messages=messages,
+                    temperature=temperature,
+                    timeout=30,  # seconds -- don't let one hung request stall the whole pipeline
+                )
+            except Exception as e:
+                span.set_attribute("success", False)
+                span.set_attribute("error", str(e))
+                attempts.append({"model": model, "error": str(e)})
+                continue
+
+            latency = time.time() - start
+            text = response.choices[0].message.content
+            usage = response.usage
+
+            llm_response = LLMResponse(
+                text=text,
+                latency_seconds=round(latency, 3),
+                input_tokens=usage.prompt_tokens,
+                output_tokens=usage.completion_tokens,
                 model=model,
-                messages=messages,
-                temperature=temperature,
-                timeout=30,  # seconds -- don't let one hung request stall the whole pipeline
             )
-        except Exception as e:
-            attempts.append({"model": model, "error": str(e)})
-            continue
 
-        latency = time.time() - start
-        text = response.choices[0].message.content
-        usage = response.usage
+            span.set_attribute("success", True)
+            span.set_attribute("latency_seconds", llm_response.latency_seconds)
+            span.set_attribute("input_tokens", llm_response.input_tokens)
+            span.set_attribute("output_tokens", llm_response.output_tokens)
+            span.set_attribute("estimated_cost_usd", llm_response.estimated_cost_usd())
 
-        return LLMResponse(
-            text=text,
-            latency_seconds=round(latency, 3),
-            input_tokens=usage.prompt_tokens,
-            output_tokens=usage.completion_tokens,
-            model=model,
-        )
+            return llm_response
 
     # Every model in the chain failed -- surface this clearly instead of
     # silently returning something broken.
@@ -161,43 +180,55 @@ def complete_json(
     last_response = None
     last_error = None
 
-    for attempt in range(max_retries + 1):
-        prompt = user_prompt
-        if attempt > 0:
-            prompt += (
-                f"\n\n(Your previous response could not be parsed as JSON: "
-                f"{last_error}. Return ONLY a valid JSON object this time.)"
-            )
+    # V2, Step 6.1: one span covering the whole retry loop, so Logfire
+    # shows how many attempts a call actually needed to get valid JSON
+    # back, not just whether it eventually succeeded.
+    with logfire.span("llm_completion_json", max_retries=max_retries) as span:
+        for attempt in range(max_retries + 1):
+            prompt = user_prompt
+            if attempt > 0:
+                prompt += (
+                    f"\n\n(Your previous response could not be parsed as JSON: "
+                    f"{last_error}. Return ONLY a valid JSON object this time.)"
+                )
 
-        try:
-            last_response = complete(strict_system_prompt, prompt, temperature=temperature)
-        except LLMGatewayError as e:
-            # Every model in the fallback chain failed for this attempt --
-            # no point retrying with the same broken chain, fail fast.
-            return (
-                {"error": "llm_gateway_unavailable", "detail": str(e)},
-                None,
-            )
+            try:
+                last_response = complete(strict_system_prompt, prompt, temperature=temperature)
+            except LLMGatewayError as e:
+                # Every model in the fallback chain failed for this attempt --
+                # no point retrying with the same broken chain, fail fast.
+                span.set_attribute("success", False)
+                span.set_attribute("error", "llm_gateway_unavailable")
+                span.set_attribute("attempts_used", attempt + 1)
+                return (
+                    {"error": "llm_gateway_unavailable", "detail": str(e)},
+                    None,
+                )
 
-        cleaned = last_response.text.strip()
-        # Defensive cleanup in case the model wraps JSON in ```json fences
-        if cleaned.startswith("```"):
-            cleaned = cleaned.strip("`")
-            cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
+            cleaned = last_response.text.strip()
+            # Defensive cleanup in case the model wraps JSON in ```json fences
+            if cleaned.startswith("```"):
+                cleaned = cleaned.strip("`")
+                cleaned = cleaned.replace("json\n", "", 1).replace("json", "", 1)
 
-        try:
-            parsed = json.loads(cleaned)
-            return parsed, last_response
-        except json.JSONDecodeError as e:
-            last_error = str(e)
-            continue
+            try:
+                parsed = json.loads(cleaned)
+                span.set_attribute("success", True)
+                span.set_attribute("attempts_used", attempt + 1)
+                return parsed, last_response
+            except json.JSONDecodeError as e:
+                last_error = str(e)
+                continue
 
-    # All retries failed -- return an explicit failure marker rather than
-    # silently returning garbage. Guardrails (Step 11) will catch this.
-    return (
-        {
-            "error": "failed_to_parse_json",
-            "raw_text": last_response.text if last_response else "",
-        },
-        last_response,
-    )
+        # All retries failed -- return an explicit failure marker rather than
+        # silently returning garbage. Guardrails (Step 11) will catch this.
+        span.set_attribute("success", False)
+        span.set_attribute("error", "failed_to_parse_json")
+        span.set_attribute("attempts_used", max_retries + 1)
+        return (
+            {
+                "error": "failed_to_parse_json",
+                "raw_text": last_response.text if last_response else "",
+            },
+            last_response,
+        )

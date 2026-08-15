@@ -149,7 +149,7 @@ def run_decision_agent(anomaly: dict, evidence: list) -> dict:
 
     return {
         "agent": "decision_agent",
-        "success": True,
+        "success": True, 
         "root_cause": result.get("root_cause", ""),
         "evidence_used": result.get("evidence_used", []),
         "confidence": result.get("confidence", 0.0),
