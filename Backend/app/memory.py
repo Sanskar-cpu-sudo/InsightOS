@@ -22,6 +22,32 @@ from app.models import Decision
 DUPLICATE_CHECK_HOURS = 24
 
 
+def _extract_metric_key(topic: dict) -> str:
+    """
+    Turns a topic dict into one string key, used both for duplicate
+    detection and for the "metric" field stored on the Decision row.
+
+    Handles all three topic shapes that can be passed in:
+      - single anomaly (has "metric", e.g. "revenue")
+      - incident (Phase 3.4's build_incident() -- has "metrics", plural,
+        e.g. ["orders", "revenue"]) -- these get joined into one sorted,
+        stable key ("orders+revenue") so the exact same incident
+        combination always dedupes against itself consistently
+      - user_question (has neither -- "unknown" is fine here since
+        user_question topics are never deduplicated anyway, see below)
+
+    BUG FIX: this used to be inlined as `topic.get("metric", "unknown")`
+    directly in save_decision(), which silently returned "unknown" for
+    EVERY incident topic (they use "metrics", plural, not "metric").
+    That broke both duplicate detection (every incident collided under
+    the same "unknown" bucket, regardless of which metrics were
+    actually involved) and the stored evidence["metric"] field.
+    """
+    if "metrics" in topic:
+        return "+".join(sorted(topic.get("metrics", []))) or "unknown"
+    return topic.get("metric", "unknown")
+
+
 def is_duplicate_recent_decision(db: Session, company_id: int, metric: str) -> bool:
     """
     Checks if there is already a recent decision about the same metric
@@ -66,7 +92,7 @@ def save_decision(
 
     Returns the saved Decision row, or None if it was skipped as a duplicate.
     """
-    metric = topic.get("metric", "unknown")
+    metric = _extract_metric_key(topic)
 
     if topic.get("type") != "user_question":
         if is_duplicate_recent_decision(db, company_id, metric):

@@ -67,20 +67,31 @@ def run_auto_pipeline_now(db: Session = Depends(get_db)):
     if chosen_anomaly is None or decision_result is None:
         return {"success": False, "reason": "no_anomaly_found"}
 
+    # BUG FIX: this used to always save `chosen_anomaly`, even when the
+    # anomalies were actually CORRELATED into an incident (Phase 3.4).
+    # graph.py's decision_agent_node already prefers chosen_incident
+    # internally when reasoning -- this line makes what gets PERSISTED
+    # (and shown via /recommendations, /history) match that same
+    # preference, instead of silently reverting to the single-metric
+    # shape regardless of what the Decision Agent actually reasoned
+    # about.
+    topic = result_state.get("chosen_incident") or chosen_anomaly
+
     # LAYER 2: check the answer is safe/complete before showing it
     output_check = check_output(decision_result)
     if not output_check["passed"]:
         return {"success": False, "reason": output_check["reason"]}
 
-    # build a proper FACTUAL sentence about the anomaly (not a question)
-    # so faithfulness checking can actually verify revenue/metric claims
-    topic_statement = anomaly_to_statement(chosen_anomaly)
+    # build a proper FACTUAL sentence about the anomaly/incident (not a
+    # question) so faithfulness checking can actually verify revenue/metric
+    # claims against it
+    topic_statement = anomaly_to_statement(topic)
 
     evidence = result_state["knowledge_agent_result"]["evidence"]
     evaluation_scores = evaluate_decision(decision_result, evidence, topic_statement)
 
     saved_decision = save_decision(
-        db, DEFAULT_COMPANY_ID, chosen_anomaly, decision_result, evaluation_scores
+        db, DEFAULT_COMPANY_ID, topic, decision_result, evaluation_scores
     )
 
     if saved_decision is None:

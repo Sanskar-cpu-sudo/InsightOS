@@ -103,7 +103,32 @@ def anomaly_to_statement(anomaly: dict) -> str:
         {"metric": "revenue", "percent_change": -38.4, "type": "point_anomaly"}
     Example output:
         "Business data: revenue changed by -38.4 percent compared to the recent average."
+
+    BUG FIX: this now also handles an INCIDENT dict (data_agent.py's
+    build_incident(), Phase 3) -- these have "metrics" (plural) and a
+    nested "anomalies" list instead of a single top-level "metric".
+    Without this branch, an incident dict would silently fall through
+    to the generic "a business metric changed by an unknown amount"
+    statement below -- which, being so generic, badly damages RAGAS
+    answer_relevancy scoring (a rich, specific answer compared against
+    a near-empty statement scores as barely relevant, even when it's
+    clearly on-topic).
     """
+    if "incident" in anomaly and anomaly.get("type") is None:
+        metrics = anomaly.get("metrics", [])
+        metrics_text = " and ".join(metrics) if metrics else "several metrics"
+
+        change_summaries = []
+        for component in anomaly.get("anomalies", []):
+            component_metric = component.get("metric", "a metric")
+            component_change = component.get(
+                "percent_change", component.get("total_percent_change", "an unknown amount")
+            )
+            change_summaries.append(f"{component_metric} changed by {component_change} percent")
+        changes_text = "; ".join(change_summaries) if change_summaries else "multiple metrics changed together"
+
+        return f"Business data: {metrics_text} moved together at the same time ({changes_text}) compared to the recent average."
+
     metric = anomaly.get("metric", "a business metric")
     change = anomaly.get("percent_change", anomaly.get("total_percent_change", "an unknown amount"))
 
