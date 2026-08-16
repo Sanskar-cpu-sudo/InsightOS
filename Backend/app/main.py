@@ -19,7 +19,7 @@ from app.vector_store import init_collection
 from app.scheduler import start_scheduler, stop_scheduler
 from app.monitoring import configure_monitoring
 
-from app.routers import dashboard, upload, recommendations, history
+from app.routers import dashboard, upload, recommendations, history, reports
 
 # V2, Step 6.2: connect to Logfire (idempotent, see monitoring.py) --
 # database.py already calls this too, whichever module happens to
@@ -79,3 +79,4 @@ app.include_router(dashboard.router, prefix="/dashboard", tags=["dashboard"])
 app.include_router(upload.router, prefix="/upload", tags=["upload"])
 app.include_router(recommendations.router, prefix="/recommendations", tags=["recommendations"])
 app.include_router(history.router, prefix="/history", tags=["history"])
+app.include_router(reports.router, prefix="/reports", tags=["reports"])

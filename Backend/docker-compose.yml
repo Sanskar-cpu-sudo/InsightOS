@@ -34,7 +34,7 @@ services:
       - qdrant_data:/qdrant/storage
 
   backend:
-    build: ./backend
+    build: .
     container_name: insightos-backend
     restart: always
     # env_file loads your secrets (like GROQ_API_KEY) from backend/.env

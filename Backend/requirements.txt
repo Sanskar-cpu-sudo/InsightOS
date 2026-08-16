@@ -63,3 +63,7 @@ apscheduler
 python-multipart
 
 openai
+
+# --- Monitoring (Logfire - LLM call, FastAPI, and SQLAlchemy observability) ---
+
+logfire[sqlalchemy,fastapi]
