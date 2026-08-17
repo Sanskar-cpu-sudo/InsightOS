@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+    LOGFIRE_TOKEN: str = ""
 
     # --- Embeddings (Knowledge Agent) ---
     EMBEDDING_MODEL: str = "all-MiniLM-L6-v2"
