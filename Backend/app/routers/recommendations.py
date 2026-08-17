@@ -77,8 +77,19 @@ def run_auto_pipeline_now(db: Session = Depends(get_db)):
     # about.
     topic = result_state.get("chosen_incident") or chosen_anomaly
 
-    # LAYER 2: check the answer is safe/complete before showing it
-    output_check = check_output(decision_result)
+    # V2 FIX: this was computed AFTER check_output() ran, so it was
+    # never actually passed in -- meaning the Phase 4.2 evidence-safety
+    # checks (fabricated evidence, stale evidence presented as current,
+    # deployment blamed without a real temporal_signal match) were
+    # fully built and tested, but never active on live traffic. Moving
+    # this line up so it's available for the check below.
+    evidence = result_state["knowledge_agent_result"]["evidence"]
+
+    # LAYER 2: check the answer is safe/complete before showing it.
+    # Passing `evidence` in activates the evidence-safety checks
+    # (check_evidence_safety() in guardrails.py) alongside the
+    # structural ones.
+    output_check = check_output(decision_result, evidence=evidence)
     if not output_check["passed"]:
         return {"success": False, "reason": output_check["reason"]}
 
@@ -87,7 +98,6 @@ def run_auto_pipeline_now(db: Session = Depends(get_db)):
     # claims against it
     topic_statement = anomaly_to_statement(topic)
 
-    evidence = result_state["knowledge_agent_result"]["evidence"]
     evaluation_scores = evaluate_decision(decision_result, evidence, topic_statement)
 
     saved_decision = save_decision(
@@ -119,13 +129,17 @@ def ask_question(question: str, db: Session = Depends(get_db)):
     if decision_result is None:
         return {"success": False, "reason": "no_evidence_found"}
 
+    # V2 FIX: same issue as run_auto_pipeline_now above -- this was
+    # computed after check_output() ran, so evidence-safety checks
+    # were never actually active here either. Moved up.
+    evidence = result_state["knowledge_agent_result"]["evidence"]
+
     # LAYER 2: check the answer is safe/complete before showing it
-    output_check = check_output(decision_result)
+    output_check = check_output(decision_result, evidence=evidence)
     if not output_check["passed"]:
         return {"success": False, "reason": output_check["reason"]}
 
     # score the answer quality using RAGAS
-    evidence = result_state["knowledge_agent_result"]["evidence"]
     evaluation_scores = evaluate_decision(decision_result, evidence, question)
 
     # save it to Decision Memory

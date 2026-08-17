@@ -50,7 +50,8 @@ groq
 datasets
 
 # --- Guardrails (NVIDIA NeMo Guardrails - policy-level input/output checks) ---
-
+langchain
+langchain-community
 nemoguardrails
 langchain-groq
 

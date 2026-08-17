@@ -2,6 +2,27 @@ import os
 import re
 from datetime import datetime, UTC
 
+# BUG FIX: nemoguardrails' newer "default" LLM framework (the one it
+# uses unless told otherwise) does NOT auto-wrap a raw LangChain chat
+# model class registered via register_chat_provider() -- it instantiates
+# it directly and expects it to already implement nemoguardrails' own
+# internal LLMModel interface. A plain langchain_groq.ChatGroq does not,
+# so every self-check call was silently crashing internally with
+# "TypeError: Expected an LLMModel instance, got ChatGroq" -- caught by
+# nemoguardrails itself, which returned a generic
+# "I'm sorry, an internal error has occurred." message instead of ever
+# actually running the check. That message never matched
+# REFUSAL_MESSAGE below, so check_input()/check_output() ALWAYS passed,
+# regardless of what was actually asked -- the input/output self-check
+# guardrails were never really blocking anything.
+#
+# nemoguardrails still ships an older "langchain" framework that DOES
+# correctly wrap a registered LangChain chat model into its LLMModel
+# interface (confirmed directly: this makes register_chat_provider
+# produce a proper LangChainLLMAdapter instead of a raw ChatGroq). This
+# must be set before register_chat_provider() runs.
+os.environ.setdefault("NEMOGUARDRAILS_LLM_FRAMEWORK", "langchain")
+
 from langchain_groq import ChatGroq
 from nemoguardrails import RailsConfig, LLMRails
 from nemoguardrails.llm.providers import register_chat_provider
