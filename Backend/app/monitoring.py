@@ -15,20 +15,31 @@ in Step 6.2 (main.py, database.py) -- this step is scoped to LLM call
 visibility specifically.
 """
 
-import os
-
 import logfire
+
+from app.config import get_settings
 
 _configured = False
 
 
 def configure_monitoring():
     """
-    Connects to Logfire using LOGFIRE_TOKEN from the environment (set
-    it in .env, same pattern as the LLM provider keys in llm_gateway.py).
+    Connects to Logfire using LOGFIRE_TOKEN from .env (see config.py).
     Safe to call more than once -- only actually configures once per
     process, so any module that needs monitoring can call this itself
     without needing to coordinate with whoever else already called it.
+
+    BUG FIX: this used to read the token directly via
+    os.getenv("LOGFIRE_TOKEN", ""), bypassing pydantic-settings
+    entirely. config.py's Settings class loads .env via
+    env_file=".env", but that ONLY populates the Settings object's own
+    fields -- it does not inject values into the raw OS environment.
+    Since nothing else in this codebase calls python-dotenv's
+    load_dotenv() to do that injection globally, os.getenv() always
+    returned "" no matter what was actually in .env, silently forcing
+    Logfire into local-only mode regardless of a real token being set.
+    Going through get_settings() (same as every other config value in
+    this codebase) is what actually makes the token reachable.
 
     If no token is set (e.g. local development without a Logfire
     account yet), Logfire still works in a local-only mode: spans are
@@ -41,10 +52,10 @@ def configure_monitoring():
     if _configured:
         return
 
-    logfire_token = os.getenv("LOGFIRE_TOKEN", "")
+    settings = get_settings()
 
     logfire.configure(
-        token=logfire_token or None,
+        token=settings.LOGFIRE_TOKEN or None,
         service_name="insightos-backend",
         send_to_logfire="if-token-present",
     )

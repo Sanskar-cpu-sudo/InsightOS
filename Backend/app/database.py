@@ -43,11 +43,11 @@ def get_db():
     """
     db = SessionLocal()
     try:
-        yield db
+        yield db #if u return the u cannot close
     finally:
         db.close()
 
 
 def init_db():
-    import app.models  # noqa: F401  (ensures models are registered on Base before create_all)
+    import app.models 
     Base.metadata.create_all(bind=engine)

@@ -33,20 +33,19 @@ if _env_var and _key_value:
     import os
     os.environ[_env_var] = _key_value
 
-# LiteLLM identifies the provider from a "provider/model" prefix on the
-# model string, e.g. "groq/llama-3.3-70b-versatile", "gpt-4o-mini" (openai
-# doesn't need a prefix), "gemini/gemini-1.5-flash".
 _PROVIDER_MODEL_PREFIX = {
     "openai": "",              # no prefix needed for openai models
     "groq": "groq/",
     "gemini": "gemini/",
 }
 
-
 def _full_model_name(model_name: str | None = None) -> str:
-    """Builds the litellm-formatted model string, e.g. 'groq/llama-3.3-70b-versatile'."""
-    prefix = _PROVIDER_MODEL_PREFIX.get(settings.LLM_PROVIDER, "")
     model = model_name or settings.LLM_MODEL
+
+    if settings.LLM_PROVIDER == "groq":
+        return f"groq/{model}"
+
+    prefix = _PROVIDER_MODEL_PREFIX.get(settings.LLM_PROVIDER, "")
     return f"{prefix}{model}"
 
 

@@ -34,14 +34,24 @@ class Settings(BaseSettings):
     # We keep provider + model separate from API keys so switching
     # providers later (GPT -> Groq -> Gemini) is a one-line change.
     LLM_PROVIDER: str = "groq"           # openai | groq | gemini
-    LLM_MODEL: str = "llama-3.3-70b-versatile"  # model name passed to litellm (Groq model)
+    LLM_MODEL: str = "openai/gpt-oss-120b"  # model name passed to litellm (Groq model)
     # If the primary model/call fails (timeout, rate limit, outage), we fall
     # back to this smaller/faster model on the SAME provider before giving up.
     # Kept same-provider for V1 so only one API key is required to work.
-    LLM_FALLBACK_MODEL: str = "llama-3.1-8b-instant"
+    LLM_FALLBACK_MODEL: str = "openai/gpt-oss-20b"
     OPENAI_API_KEY: str = ""
     GROQ_API_KEY: str = ""
     GEMINI_API_KEY: str = ""
+
+    # --- Monitoring (Logfire, Step 6.1) ---
+    # BUG FIX: this used to be read directly via os.getenv("LOGFIRE_TOKEN")
+    # in monitoring.py, bypassing pydantic-settings entirely. Since
+    # env_file=".env" below only populates THIS class's fields (it does
+    # NOT inject values into the raw OS environment), os.getenv() always
+    # returned "" regardless of what was actually in .env -- meaning
+    # Logfire silently ran in local-only mode no matter what token was
+    # set. Declaring it here, like every other key above, is what
+    # actually makes it reachable.
     LOGFIRE_TOKEN: str = ""
 
     # --- Embeddings (Knowledge Agent) ---
