@@ -1,24 +1,22 @@
 import DecisionCard from "./DecisionCard";
 import EmptyState from "./EmptyState";
 
-function DecisionList({ decisions, onOutcome, loading }) {
-  if (!decisions?.length) {
-    return <EmptyState text="No decisions found." />;
+export default function DecisionList({ decisions, onSetOutcome, busyId }) {
+  if (!decisions || decisions.length === 0) {
+    return <EmptyState title="No decisions yet" body="Once the pipeline runs, investigated incidents will show up here." />;
   }
 
   return (
     <div className="decision-list">
-      {decisions.map((decision, index) => (
+      {decisions.map((decision, i) => (
         <DecisionCard
-          key={decision.id || decision.recommendation}
+          key={decision.id}
           decision={decision}
-          onOutcome={onOutcome}
-          loading={loading}
-          delay={index}
+          onSetOutcome={onSetOutcome}
+          busy={busyId === decision.id}
+          index={i}
         />
       ))}
     </div>
   );
 }
-
-export default DecisionList;

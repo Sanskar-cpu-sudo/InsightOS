@@ -1,5 +1,5 @@
-function EmptyState({ text }) {
-  return <div className="empty-state">{text}</div>;
-}
+import StatusMessage from "./StatusMessage";
 
-export default EmptyState;
+export default function EmptyState({ title, body }) {
+  return <StatusMessage tone="info" title={title} body={body} />;
+}

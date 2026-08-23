@@ -1,25 +1,23 @@
-function HeroPanel({ loading, onRunPipeline, onRefresh }) {
+import RevenueBar from "./RevenueBar";
+
+export default function HeroPanel({ points, openAlerts }) {
+  const hasOpenAlerts = openAlerts > 0;
+
   return (
     <section className="hero-panel">
-      <div>
-        <p className="eyebrow">Decision Command Center</p>
-        <h2>Understand what changed, why it happened, and what to do next.</h2>
-        <p>
-          Monitor revenue signals, review AI recommendations, ask business questions,
-          and keep decision outcomes in one clean workspace.
-        </p>
+      <div className="hero-panel__header">
+        <div className="hero-panel__title">Revenue Vitals</div>
+        <div className="hero-panel__meta">{points?.length || 0}-day trace</div>
       </div>
 
-      <div className="hero-actions">
-        <button className="primary-button" onClick={onRunPipeline} disabled={loading}>
-          {loading ? "Running..." : "Run Pipeline"}
-        </button>
-        <button className="secondary-button" onClick={onRefresh} disabled={loading}>
-          Refresh
-        </button>
+      <div className="status-line" style={{ marginBottom: "1rem" }}>
+        <span>
+          <span className={`status-dot ${hasOpenAlerts ? "is-alert" : "is-nominal"}`} />
+          {hasOpenAlerts ? `${openAlerts} OPEN ALERT${openAlerts === 1 ? "" : "S"}` : "SYSTEM NOMINAL"}
+        </span>
       </div>
+
+      <RevenueBar points={points} hasOpenAlerts={hasOpenAlerts} />
     </section>
   );
 }
-
-export default HeroPanel;

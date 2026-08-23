@@ -16,23 +16,10 @@ router = APIRouter()
 DEFAULT_COMPANY_ID = 1
 
 
-def decision_to_dict(decision):
-    return {
-        "id": decision.id,
-        "created_at": decision.created_at,
-        "root_cause": decision.root_cause,
-        "recommendation": decision.recommendation,
-        "confidence": decision.confidence,
-        "faithfulness_score": decision.faithfulness_score,
-        "relevance_score": decision.relevance_score,
-        "outcome": decision.outcome,
-    }
-
-
 @router.get("")
 def get_history(db: Session = Depends(get_db)):
     decisions = get_decision_history(db, company_id=DEFAULT_COMPANY_ID, limit=50)
-    return {"history": [decision_to_dict(d) for d in decisions]}
+    return {"history": [d.to_dict() for d in decisions]}
 
 
 @router.post("/{decision_id}/outcome")
@@ -44,4 +31,4 @@ def set_outcome(decision_id: int, outcome: str, db: Session = Depends(get_db)):
     if updated is None:
         return {"success": False, "reason": "decision_not_found"}
 
-    return {"success": True, "decision": decision_to_dict(updated)}
+    return {"success": True, "decision": updated.to_dict()}

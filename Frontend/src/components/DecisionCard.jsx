@@ -1,46 +1,74 @@
-import { formatPercent } from "../utils/format";
+import { formatDateTime, formatDecimal, outcomeLabel, outcomeTone } from "../utils/format";
 
-function DecisionCard({ decision, onOutcome, loading, featured, delay = 0 }) {
+/**
+ * DecisionCard -- one decision, shown in HistoryPage's list or as the
+ * result of an Ask question.
+ *
+ * onSetOutcome (optional): if provided, renders action buttons to mark
+ * the decision resolved / false positive / ignored. Omitted entirely
+ * on already-reviewed decisions or where the caller doesn't want
+ * review actions (e.g. a fresh Ask result).
+ */
+export default function DecisionCard({ decision, onSetOutcome, busy, index = 0 }) {
+  const {
+    id,
+    created_at,
+    root_cause,
+    recommendation,
+    confidence,
+    faithfulness_score,
+    relevance_score,
+    outcome,
+  } = decision;
+
   return (
-    <article className={featured ? "decision-card featured-card" : "decision-card"} style={{ animationDelay: `${delay * 60}ms` }}>
-      <div className="decision-top">
-        <div>
-          <span className="confidence-pill">{formatPercent(decision.confidence)} confidence</span>
-          <h3>{decision.root_cause || "Decision"}</h3>
-        </div>
-        {decision.outcome && <span className="outcome-pill">{decision.outcome}</span>}
+    <div className="decision-card" style={{ animationDelay: `${index * 0.04}s` }}>
+      <div className="decision-card__top">
+        <div className="decision-card__date">{created_at ? formatDateTime(created_at) : "Just now"}</div>
+        <span className={`badge ${outcomeTone(outcome) ? `is-${outcomeTone(outcome)}` : ""}`}>
+          {outcomeLabel(outcome)}
+        </span>
       </div>
 
-      <p>{decision.recommendation}</p>
+      <div className="decision-card__root-cause">{root_cause}</div>
+      <div className="decision-card__recommendation">{recommendation}</div>
 
-      <div className="score-row">
-        <span>Faithfulness {formatPercent(decision.faithfulness_score)}</span>
-        <span>Relevance {formatPercent(decision.relevance_score)}</span>
+      <div className="decision-card__footer">
+        <div className="decision-card__scores">
+          <span>CONF {formatDecimal(confidence)}</span>
+          {faithfulness_score !== undefined && <span>FAITH {formatDecimal(faithfulness_score)}</span>}
+          {relevance_score !== undefined && <span>RELEV {formatDecimal(relevance_score)}</span>}
+        </div>
+
+        {onSetOutcome && !outcome && (
+          <div className="decision-card__actions">
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={busy}
+              onClick={() => onSetOutcome(id, "resolved")}
+            >
+              Resolved
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={busy}
+              onClick={() => onSetOutcome(id, "false_positive")}
+            >
+              False positive
+            </button>
+            <button
+              type="button"
+              className="btn btn-outline btn-sm"
+              disabled={busy}
+              onClick={() => onSetOutcome(id, "ignored")}
+            >
+              Ignore
+            </button>
+          </div>
+        )}
       </div>
-
-      {decision.evidence?.length > 0 && (
-        <div className="evidence-box">
-          {decision.evidence.slice(0, 3).map((item, index) => (
-            <span key={index}>{typeof item === "string" ? item : JSON.stringify(item)}</span>
-          ))}
-        </div>
-      )}
-
-      {onOutcome && (
-        <div className="outcome-actions">
-          <button disabled={loading} onClick={() => onOutcome(decision.id, "resolved")}>
-            Resolved
-          </button>
-          <button disabled={loading} onClick={() => onOutcome(decision.id, "false_positive")}>
-            False Positive
-          </button>
-          <button disabled={loading} onClick={() => onOutcome(decision.id, "ignored")}>
-            Ignored
-          </button>
-        </div>
-      )}
-    </article>
+    </div>
   );
 }
-
-export default DecisionCard;

@@ -81,6 +81,48 @@ class Decision(Base):
     # Nullable -> filled in later if/when someone marks whether it actually helped
     outcome = Column(String, nullable=True)  # e.g. "resolved", "false_positive", "ignored"
 
+    @staticmethod
+    def _sanitize_score(value):
+        """
+        BUG FIX: RAGAS's answer_relevancy (and occasionally faithfulness)
+        can legitimately return NaN in degenerate cases. evaluation.py
+        now stops NaN from being saved going forward, but rows saved
+        BEFORE that fix already have NaN sitting in the database --
+        this is what makes existing corrupted rows safe to serialize
+        anywhere, not just at write time.
+
+        NaN is a valid Python float but is NOT valid JSON (Starlette's
+        JSONResponse explicitly forbids it), so any endpoint returning
+        a raw score value used to crash the moment it touched a
+        corrupted row. `value != value` is True only for NaN -- the
+        standard, dependency-free NaN check.
+        """
+        if value is not None and value != value:
+            return None
+        return value
+
+    def to_dict(self) -> dict:
+        """
+        The single, shared way to turn a Decision row into a JSON-safe
+        dict. Used by every router that returns decision data
+        (history.py, recommendations.py) -- previously each router
+        maintained its OWN separate copy of this same logic, which is
+        exactly how the NaN-safety fix ended up missing from one of
+        them. One shared method means a future fix here protects every
+        consumer at once, not just whichever file someone remembered
+        to edit.
+        """
+        return {
+            "id": self.id,
+            "created_at": self.created_at,
+            "root_cause": self.root_cause,
+            "recommendation": self.recommendation,
+            "confidence": self._sanitize_score(self.confidence),
+            "faithfulness_score": self._sanitize_score(self.faithfulness_score),
+            "relevance_score": self._sanitize_score(self.relevance_score),
+            "outcome": self.outcome,
+        }
+
 
 class Document(Base):
     """

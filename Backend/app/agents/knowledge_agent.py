@@ -18,7 +18,7 @@ from datetime import date, datetime, timedelta, UTC
 
 from sqlalchemy.orm import Session
 
-from app.vector_store import search
+from app.vector_store import search 
 from app.config import get_settings
 from app.reranker import rerank_evidence
 from app.models import DeploymentLog
@@ -346,10 +346,6 @@ def run_knowledge_agent_from_incident(incident: dict, company_id: int = 1, top_k
     not None). Same pattern as run_knowledge_agent_from_anomaly() above,
     just using the incident-aware query builder so the search covers
     every metric involved, not only one.
-
-    Not wired into the pipeline yet -- graph.py still needs to decide
-    WHEN to call this instead of run_knowledge_agent_from_anomaly()
-    (that's Step 3.4).
     """
     query_text = build_query_from_incident(incident)
     return run_knowledge_agent(query_text, company_id=company_id, top_k=top_k)

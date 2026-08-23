@@ -1,130 +1,75 @@
+import { formatDecimal, formatPercent } from "../utils/format";
 import EmptyState from "./EmptyState";
-import { prettifyKey } from "../utils/format";
+import PanelTitle from "./PanelTitle";
 
-function WeeklyReport({ report }) {
-  if (!report) {
-    return <EmptyState text="No report generated yet." />;
-  }
+export default function WeeklyReport({ report }) {
+  if (!report) return null;
 
-  const summary = findText(report, ["summary", "weekly_summary", "executive_summary", "report"]);
-  const recommendations = findList(report, ["recommendations", "recommended_actions", "actions", "next_steps"]);
-  const themes = findList(report, ["themes", "top_themes", "recurring_issues", "incidents"]);
-  const metrics = Object.entries(report).filter(([, value]) => typeof value === "number" || typeof value === "boolean");
-  const details = Object.entries(report).filter(([, value]) => {
-    return typeof value === "string" && value !== summary;
-  });
+  const { total_decisions, incidents_detected, resolution_rate, recurring_patterns, average_confidence, outcome_breakdown } = report;
 
   return (
-    <div className="weekly-report">
-      {summary && (
-        <section className="report-summary">
-          <span>Executive Summary</span>
-          <p>{summary}</p>
-        </section>
-      )}
+    <section>
+      <PanelTitle eyebrow={`Last ${report.period_days} days`} heading="Weekly Report" />
 
-      {metrics.length > 0 && (
-        <div className="report-metrics">
-          {metrics.slice(0, 4).map(([key, value]) => (
-            <article key={key}>
-              <span>{prettifyKey(key)}</span>
-              <strong>{String(value)}</strong>
-            </article>
-          ))}
-        </div>
-      )}
-
-      <ReportList title="Key Themes" items={themes} />
-      <ReportList title="Recommended Actions" items={recommendations} numbered />
-
-      {details.length > 0 && (
-        <div className="report-details">
-          {details.slice(0, 5).map(([key, value]) => (
-            <div key={key}>
-              <strong>{prettifyKey(key)}</strong>
-              <p>{value}</p>
+      <div className="weekly-report">
+        {total_decisions === 0 ? (
+          <EmptyState
+            title="Nothing to report yet"
+            body="No decisions were made in this window. Run the pipeline or wait for the scheduler."
+          />
+        ) : (
+          <>
+            <div className="weekly-report__stats">
+              <div>
+                <div className="weekly-report__stat-label">Total Decisions</div>
+                <div className="weekly-report__stat-value">{total_decisions}</div>
+              </div>
+              <div>
+                <div className="weekly-report__stat-label">Incidents Detected</div>
+                <div className="weekly-report__stat-value">{incidents_detected}</div>
+              </div>
+              <div>
+                <div className="weekly-report__stat-label">Resolution Rate</div>
+                <div className="weekly-report__stat-value">{formatPercent(resolution_rate)}</div>
+              </div>
             </div>
-          ))}
-        </div>
-      )}
 
-      {!summary && !recommendations.length && !themes.length && details.length === 0 && (
-        <ReportFallback report={report} />
-      )}
-    </div>
-  );
-}
+            {recurring_patterns && recurring_patterns.length > 0 && (
+              <div style={{ marginBottom: "1rem" }}>
+                <div className="weekly-report__stat-label" style={{ marginBottom: "0.5rem" }}>
+                  Recurring Patterns
+                </div>
+                <div className="pattern-list">
+                  {recurring_patterns.map((p) => (
+                    <span className="pattern-chip" key={p.metric}>
+                      <strong>{p.metric}</strong> × {p.occurrences}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
 
-function ReportList({ title, items, numbered }) {
-  if (!items.length) {
-    return null;
-  }
-
-  const ListTag = numbered ? "ol" : "ul";
-
-  return (
-    <section className="report-list">
-      <h3>{title}</h3>
-      <ListTag>
-        {items.slice(0, 6).map((item, index) => (
-          <li key={index}>{formatItem(item)}</li>
-        ))}
-      </ListTag>
+            <div className="pattern-list">
+              <span className="pattern-chip">
+                Avg. confidence <strong>{formatDecimal(average_confidence)}</strong>
+              </span>
+              {outcome_breakdown && (
+                <>
+                  <span className="pattern-chip">
+                    Resolved <strong>{outcome_breakdown.resolved}</strong>
+                  </span>
+                  <span className="pattern-chip">
+                    False positive <strong>{outcome_breakdown.false_positive}</strong>
+                  </span>
+                  <span className="pattern-chip">
+                    Still open <strong>{outcome_breakdown.still_open}</strong>
+                  </span>
+                </>
+              )}
+            </div>
+          </>
+        )}
+      </div>
     </section>
   );
 }
-
-function ReportFallback({ report }) {
-  return (
-    <div className="report-details">
-      {Object.entries(report).slice(0, 8).map(([key, value]) => (
-        <div key={key}>
-          <strong>{prettifyKey(key)}</strong>
-          <p>{formatItem(value)}</p>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function findText(report, keys) {
-  for (const key of keys) {
-    if (typeof report[key] === "string" && report[key].trim()) {
-      return report[key];
-    }
-  }
-
-  return "";
-}
-
-function findList(report, keys) {
-  for (const key of keys) {
-    const value = report[key];
-
-    if (Array.isArray(value)) {
-      return value;
-    }
-  }
-
-  return [];
-}
-
-function formatItem(item) {
-  if (typeof item === "string") {
-    return item;
-  }
-
-  if (item === null || item === undefined) {
-    return "N/A";
-  }
-
-  if (typeof item === "object") {
-    return Object.entries(item)
-      .map(([key, value]) => `${prettifyKey(key)}: ${String(value)}`)
-      .join(" | ");
-  }
-
-  return String(item);
-}
-
-export default WeeklyReport;

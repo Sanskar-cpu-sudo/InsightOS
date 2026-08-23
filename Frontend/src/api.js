@@ -1,52 +1,49 @@
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 
-async function request(path, options = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, options);
-  const data = await response.json();
-
+async function handle(response) {
   if (!response.ok) {
-    throw new Error(data.detail || data.reason || "Something went wrong");
+    let detail = "";
+    try {
+      const body = await response.json();
+      detail = body.reason || body.detail || "";
+    } catch {
+      /* response wasn't JSON -- fall through with no extra detail */
+    }
+    throw new Error(detail ? `Request failed: ${detail}` : `Request failed (${response.status})`);
   }
-
-  return data;
+  return response.json();
 }
 
-export function getDashboard() {
-  return request("/dashboard");
+export function fetchDashboard() {
+  return fetch(`${API_BASE_URL}/dashboard`).then(handle);
 }
 
-export function getRecommendations() {
-  return request("/recommendations");
+export function fetchHistory() {
+  return fetch(`${API_BASE_URL}/history`).then(handle);
 }
 
-export function getHistory() {
-  return request("/history");
-}
-
-export function getWeeklyReport(days) {
-  return request(`/reports/weekly?days=${days}`);
+export function fetchWeeklyReport(days = 7) {
+  return fetch(`${API_BASE_URL}/reports/weekly?days=${days}`).then(handle);
 }
 
 export function runPipelineNow() {
-  return request("/recommendations/run-now", { method: "POST" });
+  return fetch(`${API_BASE_URL}/recommendations/run-now`, { method: "POST" }).then(handle);
 }
 
 export function askQuestion(question) {
   const params = new URLSearchParams({ question });
-  return request(`/recommendations/ask?${params.toString()}`, { method: "POST" });
+  return fetch(`${API_BASE_URL}/recommendations/ask?${params.toString()}`, { method: "POST" }).then(handle);
 }
 
-export function updateDecisionOutcome(id, outcome) {
+export function setDecisionOutcome(decisionId, outcome) {
   const params = new URLSearchParams({ outcome });
-  return request(`/history/${id}/outcome?${params.toString()}`, { method: "POST" });
+  return fetch(`${API_BASE_URL}/history/${decisionId}/outcome?${params.toString()}`, {
+    method: "POST",
+  }).then(handle);
 }
 
-export function uploadPdf(file) {
+export function uploadDocument(file) {
   const formData = new FormData();
   formData.append("file", file);
-
-  return request("/upload", {
-    method: "POST",
-    body: formData,
-  });
+  return fetch(`${API_BASE_URL}/upload`, { method: "POST", body: formData }).then(handle);
 }

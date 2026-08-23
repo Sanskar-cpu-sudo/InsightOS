@@ -26,18 +26,13 @@ DEFAULT_COMPANY_ID = 1
 
 
 def decision_to_dict(decision):
-    """Turns a Decision database row into a plain dict for the API response."""
-    return {
-        "id": decision.id,
-        "created_at": decision.created_at,
-        "root_cause": decision.root_cause,
-        "recommendation": decision.recommendation,
-        "confidence": decision.confidence,
-        "evidence": decision.evidence,
-        "faithfulness_score": decision.faithfulness_score,
-        "relevance_score": decision.relevance_score,
-        "outcome": decision.outcome,
-    }
+    """
+    Turns a Decision database row into a plain dict for the API response.
+    Delegates to Decision.to_dict() (models.py) for the NaN-safe fields
+    shared with history.py, and adds "evidence" -- the one extra field
+    this router's responses include that history.py's don't.
+    """
+    return {**decision.to_dict(), "evidence": decision.evidence}
 
 
 @router.get("")

@@ -1,10 +1,9 @@
-function PanelTitle({ eyebrow, title }) {
+export default function PanelTitle({ eyebrow, heading, sub }) {
   return (
     <div className="panel-title">
-      <span>{eyebrow}</span>
-      <h2>{title}</h2>
+      {eyebrow && <div className="panel-title__eyebrow">{eyebrow}</div>}
+      <div className="panel-title__heading">{heading}</div>
+      {sub && <div className="panel-title__sub">{sub}</div>}
     </div>
   );
 }
-
-export default PanelTitle;

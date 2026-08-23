@@ -18,6 +18,23 @@ router = APIRouter()
 DEFAULT_COMPANY_ID = 1
 
 
+def _is_valid_number(value) -> bool:
+    """
+    True if value is a real, usable number -- not None, and not NaN.
+
+    BUG FIX: `x is not None` alone does NOT catch NaN -- NaN is a
+    distinct float value, not None, so it silently passes that check.
+    A single NaN anywhere in a sum()/average poisons the WHOLE result
+    (any arithmetic involving NaN produces NaN), which is exactly what
+    crashed this endpoint: Starlette's JSONResponse explicitly forbids
+    NaN in JSON output. `value == value` is False only for NaN (a
+    well-known, dependency-free NaN check), so this is the actual
+    "is this a normal number" test the "is not None" checks below were
+    supposed to be doing all along.
+    """
+    return value is not None and value == value
+
+
 @router.get("")
 def get_dashboard(db: Session = Depends(get_db)):
     # last 7 days of sales, for a simple revenue trend
@@ -52,14 +69,25 @@ def get_dashboard(db: Session = Depends(get_db)):
     )
 
     if recent_decisions:
-        avg_confidence = sum(d.confidence for d in recent_decisions) / len(recent_decisions)
-        faithfulness_scores = [d.faithfulness_score for d in recent_decisions if d.faithfulness_score is not None]
+        # BUG FIX: confidence used to be averaged with no filtering at
+        # all -- a single NaN confidence value would poison this
+        # average and crash the whole response. Filtering it the same
+        # way faithfulness/relevance already were (but with a filter
+        # that actually catches NaN, not just None).
+        confidence_values = [d.confidence for d in recent_decisions if _is_valid_number(d.confidence)]
+        avg_confidence = sum(confidence_values) / len(confidence_values) if confidence_values else None
+
+        # BUG FIX: "is not None" here let NaN through silently -- see
+        # _is_valid_number() above. This is what let a single degenerate
+        # RAGAS score crash /dashboard for every request after it, even
+        # though this filter looked correct at a glance.
+        faithfulness_scores = [d.faithfulness_score for d in recent_decisions if _is_valid_number(d.faithfulness_score)]
         avg_faithfulness = sum(faithfulness_scores) / len(faithfulness_scores) if faithfulness_scores else None
         # V2, Step 6.3: this was already being SAVED (Decision.relevance_score,
         # filled in by evaluate_decision()) but never actually shown on the
         # dashboard -- "Answer Relevancy" in the plan's metrics panel. Same
         # averaging pattern as faithfulness above.
-        relevance_scores = [d.relevance_score for d in recent_decisions if d.relevance_score is not None]
+        relevance_scores = [d.relevance_score for d in recent_decisions if _is_valid_number(d.relevance_score)]
         avg_relevance = sum(relevance_scores) / len(relevance_scores) if relevance_scores else None
     else:
         avg_confidence = None

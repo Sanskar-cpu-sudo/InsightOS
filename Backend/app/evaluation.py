@@ -208,11 +208,33 @@ def evaluate_decision(decision_result: dict, real_evidence: list, original_topic
     faithfulness_score = float(scores_df["faithfulness"][0])
     relevance_score = float(scores_df["answer_relevancy"][0])
 
+    # BUG FIX: RAGAS's answer_relevancy (and occasionally faithfulness)
+    # can legitimately return NaN in degenerate cases -- e.g. when it
+    # can't generate a valid synthetic question from a short or thin
+    # answer. NaN is a valid Python float, so this used to sail through
+    # round() and get saved directly onto the Decision row untouched.
+    # From then on, ANY endpoint that reads/averages that field (like
+    # /dashboard) crashes: Starlette's JSONResponse explicitly forbids
+    # NaN in JSON output (it's not valid JSON, even though Python's
+    # float type allows it). Converting to None here treats a
+    # degenerate RAGAS result the same way we already treat a missing
+    # score everywhere else in the codebase -- "unknown", not "0" and
+    # not an invalid number that poisons every future read.
+    if faithfulness_score != faithfulness_score:  # NaN != NaN is the fastest, dependency-free NaN check
+        faithfulness_score = None
+    else:
+        faithfulness_score = round(faithfulness_score, 3)
+
+    if relevance_score != relevance_score:
+        relevance_score = None
+    else:
+        relevance_score = round(relevance_score, 3)
+
     llm_info = decision_result.get("llm_info", {})
 
     return {
-        "faithfulness_score": round(faithfulness_score, 3),
-        "relevance_score": round(relevance_score, 3),
+        "faithfulness_score": faithfulness_score,
+        "relevance_score": relevance_score,
         "latency_seconds": llm_info.get("latency_seconds"),
         "input_tokens": llm_info.get("input_tokens"),
         "output_tokens": llm_info.get("output_tokens"),

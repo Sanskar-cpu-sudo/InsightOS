@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 from datetime import datetime, UTC
 
 # BUG FIX: nemoguardrails' newer "default" LLM framework (the one it
@@ -28,6 +29,8 @@ from nemoguardrails import RailsConfig, LLMRails
 from nemoguardrails.llm.providers import register_chat_provider
 
 from app.config import get_settings
+
+logger = logging.getLogger("insightos.guardrails")
 
 settings = get_settings()
 
@@ -187,9 +190,23 @@ def check_input(user_question: str) -> dict:
         return {"passed": False, "reason": "question_too_short"}
 
     # now run it through NeMo Guardrails' "self check input" rail
-    response = _rails.generate(messages=[
-        {"role": "user", "content": user_question}
-    ])
+    #
+    # BUG FIX: this used to call _rails.generate() with no error
+    # handling at all. If the underlying LLM call fails for ANY reason
+    # (a retired/renamed model, a rate limit, a network blip, Groq
+    # having a bad moment), nemoguardrails raises LLMCallException,
+    # which propagated all the way up and crashed the whole request
+    # with an unhandled 500 -- a third-party model hiccup should never
+    # take the API down. We fail CLOSED here (block, don't silently
+    # pass unsafe content through) with a distinct, clearly-labeled
+    # reason, and log the real exception so it's actually diagnosable.
+    try:
+        response = _rails.generate(messages=[
+            {"role": "user", "content": user_question}
+        ])
+    except Exception:
+        logger.exception("Input guardrail LLM call failed")
+        return {"passed": False, "reason": "input_guardrail_unavailable"}
 
     reply_text = response.get("content", "") if isinstance(response, dict) else str(response)
 
@@ -294,12 +311,20 @@ def check_output(decision_result: dict, evidence: list | None = None) -> dict:
 
     # Layer 1 - NeMo Guardrails checks the actual wording of the answer.
     # We ask it to check the combined root_cause + recommendation text.
+    #
+    # BUG FIX: same issue as check_input() above -- a failed guardrail
+    # LLM call used to crash the whole request instead of failing
+    # closed. Fixed the same way here.
     combined_answer = f"{root_cause} {recommendation}"
 
-    response = _rails.generate(messages=[
-        {"role": "user", "content": "Please check this answer."},
-        {"role": "assistant", "content": combined_answer},
-    ])
+    try:
+        response = _rails.generate(messages=[
+            {"role": "user", "content": "Please check this answer."},
+            {"role": "assistant", "content": combined_answer},
+        ])
+    except Exception:
+        logger.exception("Output guardrail LLM call failed")
+        return {"passed": False, "reason": "output_guardrail_unavailable"}
 
     reply_text = response.get("content", "") if isinstance(response, dict) else str(response)
 

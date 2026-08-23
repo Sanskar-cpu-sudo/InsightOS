@@ -181,6 +181,7 @@ def find_same_window_correlation(anomalies: list) -> dict:
 # correlated metrics. frozenset so the key order doesn't matter.
 # Falls back to a generic, still-readable label built from the metric
 # names themselves for any combination not listed here.
+##Frozen dataset do not care about the order
 INCIDENT_LABELS = {
     frozenset(["revenue", "orders"]): "checkout_performance",
     frozenset(["revenue", "avg_order_value"]): "pricing_or_cart_value",

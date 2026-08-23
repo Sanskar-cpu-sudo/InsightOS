@@ -1,34 +1,33 @@
-const tabs = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "ask", label: "Ask AI" },
-  { id: "history", label: "History" },
-  { id: "upload", label: "Upload" },
+import { NavLink } from "react-router-dom";
+
+const NAV_ITEMS = [
+  { to: "/", label: "Dashboard", end: true },
+  { to: "/ask", label: "Ask" },
+  { to: "/history", label: "History" },
+  { to: "/upload", label: "Upload" },
 ];
 
-function AppHeader({ activeTab, setActiveTab }) {
+export default function AppHeader() {
   return (
-    <header className="topbar">
-      <div className="brand-block">
-        <div className="brand-mark">IO</div>
-        <div>
-          <p className="eyebrow">Autonomous Intelligence</p>
-          <h1>InsightOS</h1>
-        </div>
+    <header className="app-header">
+      <div className="app-header__inner">
+        <NavLink to="/" className="app-header__brand">
+          INSIGHTOS
+          <small>Operations Console</small>
+        </NavLink>
+        <nav className="app-header__nav">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.to}
+              to={item.to}
+              end={item.end}
+              className={({ isActive }) => `nav-link ${isActive ? "is-active" : ""}`}
+            >
+              {item.label}
+            </NavLink>
+          ))}
+        </nav>
       </div>
-
-      <nav className="tabs" aria-label="Main navigation">
-        {tabs.map((tab) => (
-          <button
-            key={tab.id}
-            className={activeTab === tab.id ? "tab active" : "tab"}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </nav>
     </header>
   );
 }
-
-export default AppHeader;
