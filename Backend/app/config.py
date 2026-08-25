@@ -10,12 +10,10 @@ from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-
 class Settings(BaseSettings):
     # --- App identity ---
     APP_NAME: str = "InsightOS"
     ENV: str = "development"
-
     # --- PostgreSQL ---
     DATABASE_URL: str = (
         "postgresql://insightos:insightos@localhost:5432/insightos"
