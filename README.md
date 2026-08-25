@@ -45,6 +45,22 @@ flowchart TD
 
 ---
 
+## Screenshots
+
+### Dashboard
+
+![InsightOS Dashboard](docs/screenshots/dashboard.png)
+
+### Ask — On-Demand Analysis
+
+![InsightOS Ask](docs/screenshots/ask.png)
+
+### Decision History
+
+![InsightOS History](docs/screenshots/history.png)
+
+---
+
 ## Engineering notes worth reading
 
 A few of the harder problems this project actually forced me to solve, since they're more representative of the work than "it renders a chart":
